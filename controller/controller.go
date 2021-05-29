@@ -2,44 +2,101 @@ package controller
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"time"
-
-	"go.nanomsg.org/mangos"
-	"go.nanomsg.org/mangos/protocol/pub"
+	"strconv"
+	"strings"
+	"encoding/json"
+	"github.com/CarlosAvila099/dc-final/resources"
 
 	// register transports
 	_ "go.nanomsg.org/mangos/transport/all"
 )
 
-var controllerAddress = "tcp://localhost:40899"
-
-func die(format string, v ...interface{}) {
-	fmt.Fprintln(os.Stderr, fmt.Sprintf(format, v...))
-	os.Exit(1)
+func createWorkload(workloadName string, workloadFilter string) (int, bool) {
+	var filterCode int
+	if workloadFilter == ""{
+		filterCode = resources.NORMAL
+	} else if workloadFilter == "grayscale"{
+		filterCode = resources.GRAYSCALE
+	} else if workloadFilter == "blur"{
+		filterCode = resources.BLUR
+	} else {
+		return -1, false
+	}
+	id := len(workloadManager)
+	wl := resources.Workload{id, filterCode, workloadName, resources.SCHEDULING, 0, make([]int, 0)}
+	workloadManager = append(workloadManager, wl)
+	return id, true
 }
 
-func date() string {
-	return time.Now().Format(time.ANSIC)
+func getWorkloads() string{
+	workloadString := "["
+	if len(workloadManager) < 1{
+		workloadString = "There are no active workloads"
+		return workloadString
+	}
+	for _, workload := range workloadManager{
+		workloadString += strconv.Itoa(workload.Id) + ", "
+	}
+	workloadString = workloadString[:len(workloadString) - 2] + "]"
+	return workloadString
 }
+
+func getMeaning(msg string) (int, []string){
+	splitted := strings.Split(msg, "&")
+	operation, _ := strconv.Atoi(splitted[0])
+	restMsg := splitted[1:]
+	return operation, restMsg
+}
+
+func operate(o int, msg []string) (resources.Workload, string) {
+	var ok bool
+	var id int
+	var work = resources.Workload{}
+	var response = ""
+	switch(o){
+		case 1:
+			name := msg[0]
+			filter := msg[1]
+			if id, ok = createWorkload(name, filter); !ok{
+				response = "-1"
+				break
+			}
+			work =  workloadManager[id]
+			break
+		case 2:
+			id, _ := strconv.Atoi(msg[0])
+			if len(workloadManager) <= id{
+				response =  "-2"
+				break
+			}
+			work = workloadManager[id]
+			break
+		case 3:
+			response = getWorkloads()
+			break
+	}
+	return work, response
+}
+
+var workloadManager []resources.Workload //Manages workload id
+//var imageManager []int //Manages workload id
 
 func Start() {
-	var sock mangos.Socket
-	var err error
-	if sock, err = pub.NewSocket(); err != nil {
-		die("can't get new pub socket: %s", err)
-	}
-	if err = sock.Listen(controllerAddress); err != nil {
-		die("can't listen on pub socket: %s", err.Error())
-	}
+	var operation int
+	var splitted []string
+	var cr = resources.ControllerResponse {}
+	socket := resources.GetSocket(true)
 	for {
-		// Could also use sock.RecvMsg to get header
-		d := date()
-		log.Printf("Controller: Publishing Date %s\n", d)
-		if err = sock.Send([]byte(d)); err != nil {
-			die("Failed publishing: %s", err.Error())
+		msg := resources.ReceiveFromPair(socket)
+		fmt.Println(msg)
+		operation, splitted = getMeaning(msg)
+		work, response := operate(operation, splitted)
+		if response == ""{
+			cr = resources.ControllerResponse{ work, "" }
+		} else {
+			cr = resources.ControllerResponse{ resources.Workload{}, response }
 		}
-		time.Sleep(time.Second * 3)
+		resp, _ := json.Marshal(cr)
+		resources.SendToPair(socket, string(resp))
 	}
 }

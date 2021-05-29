@@ -2,19 +2,15 @@ package api
 
 import(
 	"net/http"
-	"time"
-	"strconv"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/gin-gonic/gin"
 	"log"
-)
+	"strconv"
+	"time"
+	"encoding/json"
+	"go.nanomsg.org/mangos"
 
-/*
- * Represents a session, with information needed to operate
-**/
-type Session struct{
-	User string
-	Token string
-}
+	"github.com/CarlosAvila099/dc-final/resources"
+)
 
 /*
  * Handles the errors given by different functions of the code
@@ -22,93 +18,63 @@ type Session struct{
  * @param e refers to the error given, can be nil
  * @param w refers to the writer used to connect with the client
 **/
-func errorHandler(c int, e error, w http.ResponseWriter){
+func errorHandler(c float64, e error, w http.ResponseWriter){
+	var msg []byte
+	var str string
+	var err error
 	switch c{
-		case 1:
-			message := `
-{
-	"message": "There was an error while getting the token"
-	"error": "` + e.Error() + `"
-}
-`
-			w.Write([]byte(message))
-			break
-		case 2:
-			message := `
-{
-	"message": "There was a problem while revoking the token, please try again"
-}
-`
-			w.Write([]byte(message))
-			break
-		case 3:
-			message := `
-{
-	"message": "Please enter a username and password"
-}
-`
-			w.Write([]byte(message))
+		/*
+		 * Error Code Format:
+		 *	Integer Codes:
+		 *		1 = Login Errors
+		 *		2 = Token Errors
+		 *		3 = Image Errors
+		 *		4 = Workload Errors
+		 *		5 = JSON Errors
+		**/
+		case 1.1:
+			str = "Please enter username and password"
 			break;
-		case 4:
-			message := `
-{
-	"message": "Invalid username or password"
-}
-`
-			w.Write([]byte(message))
+		case 1.2:
+			str = "Invalid username or password"
 			break
-		case 5:	
-			message := `
-{
-	"message": "Please enter a token"
-}
-`
-			w.Write([]byte(message))
+		case 2.1:
+			str = "There was an error while getting the token"
 			break
-		case 6:	
-			message := `
-{
-	"message": "Invalid token"
-}
-`
-			w.Write([]byte(message))
+		case 2.2:
+			str = "Please enter a token"
 			break
-		case 7:
-			message := `
-{
-	"message": "There was an error uploading the image"
-	"error": "` + e.Error() +  `"
-}
-`
-			w.Write([]byte(message))
+		case 2.3:	
+			str = "Invalid token"
 			break
-		case 8:
-			message := `
-{
-	"message": "The image surpasses the limit of 10mb"
-}
-`
-			w.Write([]byte(message))
+		case 2.4:
+			str = "There was a problem while revoking the token, please try again"
 			break
+		case 3.1:
+			str = "There image id given does not exist"
+			break
+		case 4.1:
+			str = "The filter given is not supported, please choose either grayscale or blur"
+			break
+		case 4.2:
+			str = "There was an error while getting the workload id"
+			break
+		case 4.3:
+			str = "The workload id given does not exist"
+			break
+		case 5.1:
+			str = "There was an error while encoding the message"
+			break
+		case 5.2:
+			str = "There was a problem while decoding the data given"
 	}
+	if msg, err = resources.ErrorMessage(str, e); err != nil{
+		errorHandler(-1, err, w)
+		return
+	}
+	w.Write(msg)
 }
 
-/*
- * Checks if username and password exist
- * @param u refers to the username
- * @param p refers to the password
- * @return bool that checks if the username and password are correct
-**/
-func isAuthorised(u string, p string) bool{
-	authorization := map[string]string{
-		"username": "password",
-		"root": "",
-	}
-	if pass, ok := authorization[u]; ok{
-		return p == pass
-	}
-	return false
-}
 
 /*
  * Creates a token
@@ -116,243 +82,266 @@ func isAuthorised(u string, p string) bool{
  * @return string that refers to the token and an error if necesary, nil otherwise
  * @see https://learn.vonage.com/blog/2020/03/13/using-jwt-for-authentication-in-a-golang-application-dr/
 **/
-func getToken(u string) (string, error){
-	secretKey := "MOOTCKTPOXOOTCK"
-	atClaims := jwt.MapClaims{}
-	atClaims["authorized"] = true
-	atClaims["user_id"] = u
-	atClaims["exp"] = time.Now()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
-	signedToken, err := token.SignedString([]byte(secretKey))
-	if err != nil{
-		return "", err
-	}
-	return signedToken, nil
-}
 
-/*
- * Checks if session is already started
- * @param t refers to the token
- * @return Session related to the token given and bool to check if session is started
-**/
-func inSession(t string) (Session, bool){
-	for _, s := range sessionManager{
-		if t == s.Token{
-			return s, true
-		}
-	}
-	return Session{"", ""}, false
-}
-
-/* Removes an item from an array
- * @param s refers to array that will have an item removed
- * @param i refers to the position of the item to be removed
- * @return array with the item removed
-**/
-func remove(s []Session, i int) []Session {
-    s[len(s)-1], s[i] = s[i], s[len(s)-1]
-    return s[:len(s)-1]
-}
-
-/*
- * Revokes token, ends active session 
- * @param t refers to token to be removed
- * @return bool to check if session has ended
-**/
-func revokeToken(t string) bool{
-	for n, s := range sessionManager{
-		if t == s.Token{
-			sessionManager = remove(sessionManager, n)
-			break
-		}
-	}
-	for _, s := range sessionManager{
-		if t == s.Token{
-			return false
-		}
-	}
-	return true
-}
-
-/*
- * Converts the bytes received to kb, mg depending on the occassion
- * @param size refers to the bytes received
- * @return string that has the size in its converted form, bool that refers if the size is in the limit defined
-**/
-func getSize(size int64) (string, bool){
-	var KB, MB, LIMIT float64 = 1024, 1048576, 10485760
-	fSize := float64(size)
-	if fSize < KB{
-		return strconv.FormatFloat(fSize, 'f', 2, 64) + "b", true
-	} else if fSize >= KB && fSize < MB{
-		return strconv.FormatFloat(fSize/KB, 'f', 2, 64) + "kb", true
-	} else if fSize >= MB && fSize <= LIMIT{
-		return strconv.FormatFloat(fSize/MB, 'f', 2, 64) + "mb", true
-	} else{
-		return "", false
-	}
-}
-
-/*
- * Starts session
- * @param w refers to the writer connected to the client
- * @param r refers to the requests made
- * @see https://blog.umesh.wtf/how-to-implement-http-basic-auth-in-gogolang
-**/
-func login(w http.ResponseWriter, r *http.Request){
-	w.Header().Add("Content-type", "application/json")
-	username, password, ok := r.BasicAuth()
+func login(c * gin.Context){
+	var ok bool
+	var err error
+	var msg []byte
+	c.Writer.Header().Set("Content-type", "application/json")
+	username, password, ok := c.Request.BasicAuth()
     if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(3, nil, w)
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(1.1, nil, c.Writer)
         return
     }
-	
-	if !isAuthorised(username, password) {
-		w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(4, nil, w)
-		return
+	session := resources.Session{ username, password, "" }
+	ok, err = session.StartSession()
+	if !ok{
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		if err != nil{
+			errorHandler(2.1, err, c.Writer)
+		}
+		errorHandler(1.2, nil, c.Writer)
 	}
-	
-    w.WriteHeader(http.StatusOK)
-	token, err := getToken(username)
-	if err != nil{
-		errorHandler(1, err, w)
-		return
+    c.Writer.WriteHeader(http.StatusOK)
+	message := resources.Message{ "Hi " + username + " welcome to the DPIP System", map[string]string {"Token": session.Token} }
+	if msg, err = message.MakeMessage(); err != nil{
+		errorHandler(5.1, err, c.Writer)
 	}
-	message := `
-{
-	"message": "Hi ` + username + ` welcome to the DPIP System"
-	"token" "` + token + `"
-}
-`
-    w.Write([]byte(message))
-	sessionManager = append(sessionManager, Session{username, token})
-	log.Println("User '" + username + "' has started a session.")
+    c.Writer.Write(msg)
+	sessionManager = append(sessionManager, session)
+	log.Println("The user '" + username + "' has started it's session.")
     return
 }
 
-/*
- * Ends session
- * @param w refers to the writer connected to the client
- * @param r refers to the requests made
- * @see https://golang.org/pkg/net/http/#Header.Get
-**/
-func logout(w http.ResponseWriter, r *http.Request){
-	token := r.Header.Get("Authorization")
+func logout(c *gin.Context){
+	var err error
+	var msg []byte
+	token := c.Request.Header.Get("Authorization")
 	if len(token) < 7{
-		w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(5, nil, w)
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.2, nil, c.Writer)
         return
 	}
 	token = token[7:]
-	session, started := inSession(token)
+	session, started := resources.InSession(token, sessionManager)
 	if !started{
-        w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(6, nil, w)
+        c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.3, nil, c.Writer)
         return
 	}
-	revoked := revokeToken(token)
+	revoked := resources.RevokeToken(token, sessionManager)
 	if !revoked{
-		errorHandler(2, nil, w)
+		errorHandler(2.4, nil, c.Writer)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	message := `
-{
-	"message": "Bye ` + session.User + `, your token has been revoked"
-}
-`
-	w.Write([]byte(message))
-	log.Println("User '" + session.User + "' has ended the session.")
+	c.Writer.WriteHeader(http.StatusOK)
+	message := resources.Message{"Bye " + session.User + ", your token has been revoked", map[string]string{}}
+	if msg, err = message.MakeMessage(); err != nil{
+		errorHandler(5.1, err, c.Writer)
+	}
+    c.Writer.Write(msg)
 	return
 }
 
-/*
- * Uploads an image to the server
- * @param w refers to the writer connected to the client
- * @param r refers to the requests made
- * @see https://golang.org/pkg/net/http/#Request.FormFile
- * @see https://golang.org/pkg/mime/multipart/#FileHeader
-**/
-func upload(w http.ResponseWriter, r *http.Request){
-	token := r.Header.Get("Authorization")
+func images(c *gin.Context){
+	//var err error
+	//var msg []byte
+	token := c.Request.Header.Get("Authorization")
 	if len(token) < 7{
-		w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(5, nil, w)
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.2, nil, c.Writer)
         return
 	}
 	token = token[7:]
-	session, started := inSession(token)
+	_, started := resources.InSession(token, sessionManager)
 	if !started{
-        w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(6, nil, w)
+        c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.3, nil, c.Writer)
         return
 	}
-	w.WriteHeader(http.StatusOK)
-	r.ParseMultipartForm(10 << 20)
-	_, header, err  := r.FormFile("data")
+	c.Writer.WriteHeader(http.StatusOK)
+	/*c.Request.ParseMultipartForm(10 << 20)
+	_, header, err  := c.Request.FormFile("data")
 	if err != nil{
-		w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(7, err, w)
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(7, err, c.Writer)
 		return
 	}
-	size, ok := getSize(header.Size)
-	if !ok{
-		errorHandler(8, nil, w)
+	var data resources.ImageJSON
+	err = c.ShouldBindJSON(&data)
+	if err != nil{
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(5.2, err, c.Writer)
 		return
 	}
-	message := `
-{
-	"message": "An image has been successfully uploaded"
-	"filename": "` + header.Filename + `"
-	"size": "` + size + `"
-}
-`
-    w.Write([]byte(message))
-	log.Println("User '" + session.User + "' uploaded '" + header.Filename + "'.")
+	id := data.WorkloadId
+	message := resources.Message{ "An image has been successfully uploaded", map[string]string{ "Workload ID":strconv.Itoa(work.Id), "Image ID":strconv.Itoa(data.WorkloadId),"Filter":work.GetFilter() } }
+	if msg, err = message.MakeMessage(); err != nil{
+		errorHandler(5.1, err, c.Writer)
+	}
+    c.Writer.Write(msg)*/
 	return 
 }
 
-/*
- * Gives session status
- * @param w refers to the writer connected to the client
- * @param r refers to the requests made
- * @see https://golang.org/pkg/net/http/#Header.Get
-**/
-func status(w http.ResponseWriter, r *http.Request){
-	token := r.Header.Get("Authorization")
+func ImagesGet(c *gin.Context){
+	var err error
+	//var msg []byte
+	c.Writer.Header().Set("Content-type", "application/json")
+	token := c.Request.Header.Get("Authorization")
 	if len(token) < 7{
-		w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(5, nil, w)
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.2, nil, c.Writer)
         return
 	}
 	token = token[7:]
-	session, started := inSession(token)
+	_, started := resources.InSession(token, sessionManager)
 	if !started{
-        w.WriteHeader(http.StatusUnauthorized)
-		errorHandler(6, nil, w)
+        c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.3, nil, c.Writer)
         return
 	}
-	w.WriteHeader(http.StatusOK)
-	t := time.Now()
-	message := `
-{
-	"message": "Hi ` + session.User + `, the DPIP System is Up and Running "
-	"time": "` + t.Format("2006-01-02 15:04:05") + `"
+	c.Writer.WriteHeader(http.StatusOK)
+	_, err = strconv.Atoi(c.Param("id")[1:])
+	if err != nil{
+		errorHandler(3.1, err, c.Writer)
+		return
+	}
+	//Territorio desconocido
+	return
 }
-`
-    w.Write([]byte(message))
-	log.Println("User '" + session.User + "' wants to know the status.")
+
+func workloads(c *gin.Context){
+	var err error
+	var msg []byte
+	c.Writer.Header().Set("Content-type", "application/json")
+	token := c.Request.Header.Get("Authorization")
+	if len(token) < 7{
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.2, nil, c.Writer)
+        return
+	}
+	token = token[7:]
+	_, started := resources.InSession(token, sessionManager)
+	if !started{
+        c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.3, nil, c.Writer)
+        return
+	}
+	c.Writer.WriteHeader(http.StatusOK)
+	var data resources.WorkloadJSON
+	err = c.ShouldBindJSON(&data)
+	if err != nil{
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(5.2, err, c.Writer)
+		return
+	}
+	name := data.WorkloadName
+	filter := data.Filter
+	log.Println(socket)
+	resources.SendToPair(socket, "1&" + name + "&" + filter)
+	bytes := resources.ReceiveFromPair(socket)
+	response := new(resources.ControllerResponse)
+	_ = json.Unmarshal([]byte(bytes), &response)
+	if response.Response != ""{
+		if response.Response == "-1"{
+			errorHandler(4.1, nil, c.Writer)
+		}
+	}
+	work := response.Work
+	message := resources.Message{ "The workload has been successfully created", map[string]string{ "Workload ID":strconv.Itoa(work.Id), "Filter":work.GetFilter(), "Workload Name":work.Name,  "Status":work.GetStatus(), "Running Jobs":strconv.Itoa(work.RunningJobs), "Filtered Images": work.GetImages() } }
+	if msg, err = message.MakeMessage(); err != nil{
+		errorHandler(5.1, err, c.Writer)
+	}
+    c.Writer.Write(msg)
+	return 
+}
+
+func workloadsGet(c *gin.Context){
+	var err error
+	var msg []byte
+	c.Writer.Header().Set("Content-type", "application/json")
+	token := c.Request.Header.Get("Authorization")
+	if len(token) < 7{
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.2, nil, c.Writer)
+        return
+	}
+	token = token[7:]
+	_, started := resources.InSession(token, sessionManager)
+	if !started{
+        c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.3, nil, c.Writer)
+        return
+	}
+	c.Writer.WriteHeader(http.StatusOK)
+	id, err := strconv.Atoi(c.Param("id")[1:])
+	if err != nil{
+		errorHandler(4.2, err, c.Writer)
+		return
+	}
+	resources.SendToPair(socket, "2&" + strconv.Itoa(id))
+	bytes := resources.ReceiveFromPair(socket)
+	response := new(resources.ControllerResponse)
+	_ = json.Unmarshal([]byte(bytes), &response)
+	if response.Response != ""{
+		if response.Response == "-2"{
+			errorHandler(4.3, nil, c.Writer)
+		}
+	}
+	work := response.Work
+	message := resources.Message{ "Information retrieved successfully", map[string]string{ "Workload ID":strconv.Itoa(work.Id), "Filter":work.GetFilter(), "Workload Name":work.Name,  "Status":work.GetStatus(), "Running Jobs":strconv.Itoa(work.RunningJobs), "Filtered Images": work.GetImages() } }
+	if msg, err = message.MakeMessage(); err != nil{
+		errorHandler(5.1, err, c.Writer)
+	}
+    c.Writer.Write(msg)
+	return
+}
+
+func status(c *gin.Context){
+	var err error
+	var msg []byte
+	token := c.Request.Header.Get("Authorization")
+	if len(token) < 7{
+		c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.2, nil, c.Writer)
+        return
+	}
+	token = token[7:]
+	session, started := resources.InSession(token, sessionManager)
+	if !started{
+        c.Writer.WriteHeader(http.StatusUnauthorized)
+		errorHandler(2.3, nil, c.Writer)
+        return
+	}
+	c.Writer.WriteHeader(http.StatusOK)
+	t := time.Now()
+	resources.SendToPair(socket, "3&")
+	bytes := resources.ReceiveFromPair(socket)
+	response := new(resources.ControllerResponse)
+	_ = json.Unmarshal([]byte(bytes), &response)
+	message := resources.Message{ "Hi " + session.User + ", the DPIP System is Up and Running", map[string]string{ "Time": t.Format("2006-01-02 15:04:05"), "Active Workloads":response.Response } }
+	if msg, err = message.MakeMessage(); err != nil{
+		errorHandler(5.1, err, c.Writer)
+	}
+	c.Writer.Write(msg)
     return
 }
 
-var sessionManager []Session // Manages all started sessions
+var sessionManager []resources.Session // Manages all started sessions
+var socket mangos.Socket
 
 func Start() {
-	http.HandleFunc("/login", login)
-	http.HandleFunc("/logout", logout)
-	http.HandleFunc("/upload", upload)
-	http.HandleFunc("/status", status)
-	http.ListenAndServe("localhost:8080", nil)
+	socket = resources.GetSocket(false)
+	gin.SetMode(gin.ReleaseMode)
+	url := "localhost:8080"
+	r := gin.Default()
+	r.POST("/login", login)
+	r.DELETE("/logout", logout)
+	r.GET("/status", status)
+	r.POST("/images", images)
+	r.GET("/images/*id", ImagesGet)
+	r.POST("/workloads", workloads)
+	r.GET("/workloads/*id", workloadsGet)
+	r.Run(url)
 }
