@@ -123,10 +123,10 @@ If the token exists it will the display the Number of active Workloads.
 
 - Upload Images
 
-The *images* command will receive the **absolute** path of the image that you want to upload and the token of the user.
+The *images* command will receive the **relative** path of the image that you want to upload and the token of the user.
 
 ```
-$ curl -X POST -F 'data=<Absolute Path>' -H "Authorization: <Token>" -d {"workload_id":<number of workload>} http://localhost:8080/images
+$ curl -X POST -H "Authorization: Bearer T" -d '{"workload_id":£, "image":"relative/path/to/image", "type":"<original or filtered>"}' http://localhost:8080/images
 ```
 
 If the Image is uploaded succesfully the following message will appear:
