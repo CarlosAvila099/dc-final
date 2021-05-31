@@ -106,11 +106,11 @@ func (s *Session) getToken() (error){
 	atClaims["user_id"] = s.User
 	atClaims["exp"] = time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
-	_, err := token.SignedString([]byte(secretKey))
+	signedToken, err := token.SignedString([]byte(secretKey))
 	if err != nil{
 		return err
 	}
-	s.Token = "yeet" //signedToken
+	s.Token = signedToken
 	return nil
 }
 
