@@ -7,6 +7,7 @@ User Guide
  
 ```
 $ go get -v ./...
+$ go get github.com/anthonynsimon/bild/...
 ```
 This should install all the non-standard packages needed for the project to work properly.
 if the previous command display some error, please try the next one instead:
