@@ -5,17 +5,22 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"bufio"
+	"strings"
+	"io/ioutil"
+	"io"
 	"github.com/dgrijalva/jwt-go"
 	"encoding/json"
 	
 	"go.nanomsg.org/mangos"
 	"go.nanomsg.org/mangos/protocol/pair"
+	"go.nanomsg.org/mangos/protocol/pub"
 )
 
 const(
-	NORMAL = 0
-	GRAYSCALE = 1
-	BLUR = 2
+	GRAYSCALE = 0
+	BLUR = 1
+
 	SCHEDULING = 0
 	RUNNING = 1
 	COMPLETED = 2
@@ -34,6 +39,8 @@ type WorkloadJSON struct {
 
 type ImageJSON struct {
 	WorkloadId int `form:"workload_id" json:"workload_id" xml:"workload_id" binding:"-"`
+	ImagePath string `form:"image" json:"image" xml:"image" binding:"-"`
+	ImageType string `form:"type" json:"type" xml:"type" binding:"-"`
 }
 
 type Workload struct {
@@ -54,6 +61,11 @@ type Session struct{
 	User string
 	Pass string
 	Token string
+}
+
+type Job struct {
+	Address string
+	RPCName string
 }
 
 type Message struct{
@@ -146,16 +158,135 @@ func (w *Workload) GetStatus() string{
 	return status
 }
 
+func (w *Workload) SaveWorkload() bool{
+	path := "./images/" + w.Name
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		os.Mkdir(path, os.ModePerm)
+		os.Mkdir(path + "/images", os.ModePerm)
+		w.CreateFile()
+		return true
+	}
+	return false
+}
+
+func (w *Workload) CreateFile(){
+	information := strconv.Itoa(w.Id) + "&" + strconv.Itoa(w.Filter) + "&" + w.Name
+    ioutil.WriteFile("./images/" + w.Name + "/info.txt", []byte(information), 0644)
+}
+
 func (w *Workload) GetFilter() string{
 	var filter string
-	if w.Filter == NORMAL{
-		filter = "Original"
-	} else if w.Filter == GRAYSCALE{
+	if w.Filter == GRAYSCALE{
 		filter = "Grayscale"
 	} else if w.Filter == BLUR{
 		filter = "Blur"
 	}
 	return filter
+}
+
+func (w *Workload) CopyImage(image string, counter int) (int, bool) {
+	splitter := strings.Split(image, ".")
+	ext := splitter[len(splitter) - 1]
+	id := counter + 1
+	source, err := os.Open(image)
+    if err != nil {
+            return -1, false
+    }
+    defer source.Close()
+	newPath := "images/" + w.Name + "/images/" + strconv.Itoa(id) + "." + ext
+    destination, err := os.Create(newPath)
+    if err != nil {
+		fmt.Println(err.Error())
+        return 0, false
+    }
+    defer destination.Close()
+    _, err = io.Copy(destination, source)
+	if err != nil{
+		return -2, false
+	}
+    return id, true
+}
+
+func ReadWorkloads() ([]Workload, int){
+	var works []Workload
+	var dirs []string 
+	counter := 0
+	path := "./images"
+	files, _ := ioutil.ReadDir(path)
+    for _, f := range files {
+        if f.IsDir(){
+			dirs = append(dirs, f.Name())
+		}
+    }
+	for _, name := range dirs{
+		filepath := path + "/" + name + "/info.txt"
+		file, _ := os.Open(filepath)
+		scanner := bufio.NewScanner(file)
+    	for scanner.Scan() {
+        	splitted := strings.Split(scanner.Text(), "&")
+			id, _ := strconv.Atoi(splitted[0])
+			filter, _ := strconv.Atoi(splitted[1])
+			workName := splitted[2]
+			wl := Workload { id, filter, workName, SCHEDULING, 0, make([]int, 0) }
+			works = append(works, wl)
+    	}
+		images := path + "/" + name + "/images"
+		files, _ := ioutil.ReadDir(images)
+    	for _, _ = range files {
+			counter++
+    	}
+		file.Close()
+	}
+	return works, counter
+}
+
+func SearchImage(wm []Workload, s string) (string, string, bool){
+	for _, wk := range wm{
+		images :=  "images/" + wk.Name + "/images"
+		files, _ := ioutil.ReadDir(images)
+    	for _, f := range files {
+			id := strings.Split(f.Name(), ".")[0]
+			if id == s{
+				return images + "/", f.Name(), true
+			}
+    	}	
+	}
+	return "", "", false
+}
+
+func DownloadImage(p string, n string) bool {
+	path := "./downloads"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		os.Mkdir(path, os.ModePerm)
+	}
+	source, err := os.Open(p + n)
+    if err != nil {
+		fmt.Println("S", err)
+        return false
+    }
+    defer source.Close()
+	newPath := path + "/" + n
+    destination, err := os.Create(newPath)
+    if err != nil {
+		fmt.Println("D", err)
+        return false
+    }
+    defer destination.Close()
+    _, err = io.Copy(destination, source)
+	if err != nil{
+		fmt.Println("C", err)
+		return false
+	}
+    return true
+}
+
+func Exists(wm []Workload, s string) bool{
+	for _, wk := range wm{
+		if wk.Name == s{
+			return true
+		}
+	}
+	return false
 }
 
 func Die(format string, v ...interface{}) {
@@ -196,6 +327,18 @@ func SendToPair(socket mangos.Socket, message string){
 	if err = socket.Send([]byte(message)); err != nil {
 		Die("There was an error sending the information:", err.Error())
 	}
+}
+
+func GetPublisher() mangos.Socket{
+	var sock mangos.Socket
+	var err error
+	if sock, err = pub.NewSocket(); err != nil {
+		Die("can't get new pub socket: %s", err)
+	}
+	if err = sock.Listen(CONTROLLER); err != nil {
+		Die("can't listen on pub socket: %s", err.Error())
+	}
+	return sock
 }
 
 func ErrorMessage(s string, e error) ([]byte, error){

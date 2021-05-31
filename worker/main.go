@@ -8,7 +8,7 @@ import (
 	"net"
 	"os"
 
-	pb "github.com/CodersSquad/dc-final/proto"
+	pb "github.com/CarlosAvila099/dc-final/proto"
 	"go.nanomsg.org/mangos"
 	"go.nanomsg.org/mangos/protocol/sub"
 	"google.golang.org/grpc"
@@ -41,6 +41,10 @@ func die(format string, v ...interface{}) {
 func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
 	log.Printf("RPC: Received: %v", in.GetName())
 	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
+}
+
+func (s *server) GrayscaleFilter(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
+	return &pb.HelloReply{Message: "GrayscaleFilter " + in.GetName()}, nil
 }
 
 func init() {

@@ -5,7 +5,8 @@ import (
 	"log"
 	"time"
 
-	pb "github.com/CodersSquad/dc-final/proto"
+	pb "github.com/CarlosAvila099/dc-final/proto"
+	"github.com/CarlosAvila099/dc-final/resources"
 	"google.golang.org/grpc"
 )
 
@@ -14,12 +15,8 @@ import (
 //	defaultName = "world"
 //)
 
-type Job struct {
-	Address string
-	RPCName string
-}
 
-func schedule(job Job) {
+func schedule(job resources.Job) {
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(job.Address, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
@@ -35,9 +32,15 @@ func schedule(job Job) {
 		log.Fatalf("could not greet: %v", err)
 	}
 	log.Printf("Scheduler: RPC respose from %s : %s", job.Address, r.GetMessage())
+
+	r, err = c.GrayscaleFilter(ctx, &pb.HelloRequest{Name: job.RPCName})
+	if err != nil {
+		log.Fatalf("could not greet: %v", err)
+	}
+	log.Printf("Scheduler: RPC respose from %s : %s", job.Address, r.GetMessage())
 }
 
-func Start(jobs chan Job) error {
+func Start(jobs chan resources.Job) error {
 	for {
 		job := <-jobs
 		schedule(job)
