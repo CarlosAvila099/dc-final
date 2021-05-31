@@ -193,7 +193,7 @@ func (w *Workload) CopyImage(image string, counter int) (int, bool) {
             return -1, false
     }
     defer source.Close()
-	newPath := "images/" + w.Name + "/images/" + strconv.Itoa(id) + "." + ext
+	newPath := "images/" + w.Name + "/images/o" + strconv.Itoa(id) + "." + ext
     destination, err := os.Create(newPath)
     if err != nil {
 		fmt.Println(err.Error())
@@ -204,12 +204,14 @@ func (w *Workload) CopyImage(image string, counter int) (int, bool) {
 	if err != nil{
 		return -2, false
 	}
+	works[w.Id].FilteredImages = w.FilteredImages
     return id, true
 }
 
 func ReadWorkloads() ([]Workload, int){
 	var works []Workload
 	var dirs []string 
+	var wl Workload
 	counter := 0
 	path := "./images"
 	files, _ := ioutil.ReadDir(path)
@@ -227,14 +229,20 @@ func ReadWorkloads() ([]Workload, int){
 			id, _ := strconv.Atoi(splitted[0])
 			filter, _ := strconv.Atoi(splitted[1])
 			workName := splitted[2]
-			wl := Workload { id, filter, workName, SCHEDULING, 0, make([]int, 0) }
-			works = append(works, wl)
+			wl = Workload { id, filter, workName, SCHEDULING, 0, make([]int, 0) }
     	}
 		images := path + "/" + name + "/images"
 		files, _ := ioutil.ReadDir(images)
-    	for _, _ = range files {
+    	for _, f := range files {
+			name := f.Name()[0:1]
+			if name == "f"{
+				splitted := strings.Split(f.Name()[1:], ".")
+				id, _ := strconv.Atoi(splitted[0])
+				wl.FilteredImages = append(wl.FilteredImages, id)
+			}
 			counter++
     	}
+		works = append(works, wl)
 		file.Close()
 	}
 	return works, counter
