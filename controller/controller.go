@@ -101,7 +101,7 @@ func operate(o int, msg []string) (resources.Workload, string) {
 			}
 			work = workloadManager[id]
 			if imageType == "original"{
-				if id, ok = work.CopyImage(image, imageCounter); !ok{
+				if id, ok = work.CopyImage(image, imageCounter, workloadManager); !ok{
 					if id == -1{
 						response = "-4.3"
 						break
