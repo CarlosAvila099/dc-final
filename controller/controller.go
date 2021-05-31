@@ -57,7 +57,7 @@ func getMeaning(msg string) (int, []string){
 	return operation, restMsg
 }
 
-func operate(o int, msg []string) (resources.Workload, string) {
+func operate(o int, msg []string, jobs chan resources.Job) (resources.Workload, string) {
 	var ok bool
 	var id int
 	var work = resources.Workload{}
@@ -112,7 +112,7 @@ func operate(o int, msg []string) (resources.Workload, string) {
 				}
 				response = strconv.Itoa(id)
 			} else if imageType == "filtered"{
-				//Creates Job
+				jobs <- resources.Job { resources.SCHEDULER, work.GetFilter(), image, "images/" + work.Name + "/images/", imageCounter }
 			} else{
 				response =  "-4.2"
 				break
@@ -146,7 +146,7 @@ func Start(jobs chan resources.Job) {
 	for {
 		msg := resources.ReceiveFromPair(socket)
 		operation, splitted = getMeaning(msg)
-		work, response := operate(operation, splitted)
+		work, response := operate(operation, splitted, jobs)
 		if response == ""{
 			cr = resources.ControllerResponse{ work, "" }
 		} else {

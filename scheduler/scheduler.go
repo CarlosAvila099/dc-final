@@ -27,17 +27,14 @@ func schedule(job resources.Job) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	r, err := c.SayHello(ctx, &pb.HelloRequest{Name: job.RPCName})
-	if err != nil {
-		log.Fatalf("could not greet: %v", err)
-	}
-	log.Printf("Scheduler: RPC respose from %s : %s", job.Address, r.GetMessage())
 
-	r, err = c.GrayscaleFilter(ctx, &pb.HelloRequest{Name: job.RPCName})
+	log.Println(job.RPCName)
+
+	fr, err := c.Filter(ctx, &pb.FilterRequest{Filter: job.RPCName, Image: job.ImagePath, Workload: job.WorkloadPath, Counter: job.CurrentId})
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Fatalf("could not filter: %v", err)
 	}
-	log.Printf("Scheduler: RPC respose from %s : %s", job.Address, r.GetMessage())
+	log.Printf("Scheduler: RPC respose from %s : %s", job.Address, fr.GetMessage())
 }
 
 func Start(jobs chan resources.Job) error {

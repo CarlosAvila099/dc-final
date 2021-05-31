@@ -27,6 +27,7 @@ const(
 	
 	CONTROLLER = "tcp://localhost:40899"
 	API = "tcp://localhost:40900"
+	SCHEDULER = "tcp://localhost:50051"
 
 	LISTEN = 0
 	DIAL = 1
@@ -65,7 +66,10 @@ type Session struct{
 
 type Job struct {
 	Address string
-	RPCName string
+	RPCName string //Filter
+	ImagePath string
+	WorkloadPath string
+	CurrentId int
 }
 
 type Message struct{
@@ -184,7 +188,7 @@ func (w *Workload) GetFilter() string{
 	return filter
 }
 
-func (w *Workload) CopyImage(image string, counter int) (int, bool) {
+func (w *Workload) CopyImage(image string, counter int, works []Workload) (int, bool) {
 	splitter := strings.Split(image, ".")
 	ext := splitter[len(splitter) - 1]
 	id := counter + 1

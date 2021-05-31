@@ -7,8 +7,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 
 	pb "github.com/CarlosAvila099/dc-final/proto"
+	"github.com/CarlosAvila099/dc-final/resources"
 	"go.nanomsg.org/mangos"
 	"go.nanomsg.org/mangos/protocol/sub"
 	"google.golang.org/grpc"
@@ -43,8 +45,8 @@ func (s *server) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.HelloRe
 	return &pb.HelloReply{Message: "Hello " + in.GetName()}, nil
 }
 
-func (s *server) GrayscaleFilter(ctx context.Context, in *pb.HelloRequest) (*pb.HelloReply, error) {
-	return &pb.HelloReply{Message: "GrayscaleFilter " + in.GetName()}, nil
+func (s *server) Filter(ctx context.Context, in *pb.FilterRequest) (*pb.FilterReply, error) {
+	return &pb.FilterReply{Message: "Filter" + in.GetFilter() + strconv.Itoa(in.GetCounter() + 1)}, nil
 }
 
 func init() {
@@ -63,8 +65,8 @@ func joinCluster() {
 		die("can't get new sub socket: %s", err.Error())
 	}
 
-	log.Printf("Connecting to controller on: %s", controllerAddress)
-	if err = sock.Dial(controllerAddress); err != nil {
+	log.Printf("Connecting to controller on: %s", resources.CONTROLLER)
+	if err = sock.Dial(resources.CONTROLLER); err != nil {
 		die("can't dial on sub socket: %s", err.Error())
 	}
 	// Empty byte array effectively subscribes to everything
